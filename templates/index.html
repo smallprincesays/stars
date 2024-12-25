@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+
+{% block head %}
+    <link rel="stylesheet" href="{{ get_url(path='main.css') | safe }}"
+{% endblock %}
+
+{% block content %}
+
+
+<div class="body">
+    <div class="left-section"></div>
+    <div class="right-section">
+        <div class="top-lns lns">
+            <h2 class="rust ln"><a href="{{ get_url(path='@/rust/_index.md') }}">rust</a></h2>
+            <h2 class="machine-learning ln"><a href="{{ get_url(path='machine_learning.html') }}">machine learning</a></h2>
+        </div>
+        <h1 class="headline">from the stars.</h1>
+        <div class="bottom-lns lns">
+            <h2 class="philosophy ln"><a href="{{ get_url(path='philosophy.html') }}">philosophy</a></h2>
+            <h2 class="math ln"><a href="{{ get_url(path='math.html') }}">math</a></h2>
+        </div>
+    </div>
+
+
+</div>
+
+<script>
+    anime({
+        targets: '.rust',
+        opacity: 1,
+        duration: 15000,
+        delay: 750,
+    });
+
+    anime({
+        targets: '.machine-learning',
+        opacity: 1,
+        duration: 15000,
+        delay: 500,
+    });
+
+    anime({
+        targets: '.philosophy',
+        opacity: 1,
+        duration: 15000,
+        delay: 400,
+    });
+    
+    anime({
+        targets: '.math',
+        opacity: 1,
+        duration: 15000,
+        delay: 450,
+    });
+
+    // Easy moving outwards
+    anime({
+        targets: '.rust',
+        translateX: -20,
+        translateY: -130,
+        rotateZ: -20,
+        duration: 20000,
+        delay: 300,
+        easing: 'easeOutSine',
+    });
+
+    anime({
+        targets: '.machine-learning',
+        translateX: +20,
+        translateY: -80,
+        rotateZ: +10,
+        duration: 20000,
+        delay: 650,
+        easing: 'easeOutSine',
+    });
+
+    anime({
+        targets: '.philosophy',
+        translateX: -20,
+        translateY: +90,
+        rotateZ: +10,
+        duration: 20000,
+        delay: 500,
+        easing: 'easeOutSine',
+    });
+    
+    anime({
+        targets: '.math',
+        translateX: +20,
+        translateY: +140,
+        rotateZ: -15,
+        duration: 20000,
+        delay: 600,
+        easing: 'easeOutSine',
+    });
+</script>
+
+{% endblock content %}
