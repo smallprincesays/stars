@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 
+{% block head %}
+<link rel="stylesheet" href="{{ get_url(path='blog-page.css') | safe }}">
+{% endblock %}
+
 {% block content %}
+<div class="body">
 <h1 class="title">
   {{ page.title }}
 </h1>
 <p class="subtitle"><strong>{{ page.date }}</strong></p>
 {{ page.content | safe }}
+</div>
 {% endblock content %}

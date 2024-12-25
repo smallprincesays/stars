@@ -1,0 +1,52 @@
+html {
+    background-color: #DECDBF;
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+}
+
+body {
+    background-color: #DECDBF;
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+}
+
+.title {
+    font-family: "mencken-std-head-narrow", sans-serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 7em;
+    margin: 0;
+
+    margin-bottom: 0.5em;
+    text-decoration: underline;
+}
+
+.subtitle {
+    font-family: "Iosevka Web", monospace;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 1.5em;
+    margin: 0;
+}
+
+.body {
+    margin-left: 20%;
+    margin-right: 20%;
+    margin-top: 2%;
+}
+
+pre.language-rust {
+    padding: 2em;
+}
+
+code {
+    font-family: "Iosevka Web", monospace;
+    font-size: 1.5em;
+}
+
+p {
+    font-family: "Iosevka Web", monospace;
+    font-size: 1.5em;
+}
