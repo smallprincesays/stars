@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512.56 53.72">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+      }
+
+      .cls-1, .cls-2 {
+        stroke: #231f20;
+        stroke-miterlimit: 10;
+      }
+
+      .cls-3, .cls-4 {
+        fill: #231f20;
+      }
+
+      .cls-2 {
+        fill: #fff;
+      }
+
+      .cls-4 {
+        font-family: IosevkaNF, 'Iosevka Nerd Font';
+        font-size: 12px;
+      }
+    </style>
+  </defs>
+  <rect class="cls-2" x=".5" y="5.64" width="73" height="38.48"/>
+  <text class="cls-4" transform="translate(19 27.78)"><tspan x="0" y="0">client</tspan></text>
+  <text class="cls-4" transform="translate(93.67 10.41)"><tspan x="0" y="0">ClientRtcMessage</tspan></text>
+  <text class="cls-4" transform="translate(322.89 10.41)"><tspan x="0" y="0">ClientRtcMessage</tspan></text>
+  <text class="cls-4" transform="translate(93.67 46.53)"><tspan x="0" y="0">WorkerRtcMessage</tspan></text>
+  <text class="cls-4" transform="translate(322.89 44.12)"><tspan x="0" y="0">WorkerRtcMessage</tspan></text>
+  <rect class="cls-2" x="439.07" y="5.64" width="73" height="38.48"/>
+  <text class="cls-4" transform="translate(457.56 27.78)"><tspan x="0" y="0">worker</tspan></text>
+  <rect class="cls-2" x="209.84" y="5.64" width="92.88" height="38.48"/>
+  <text class="cls-4" transform="translate(223.28 27.78)"><tspan x="0" y="0">distributor</tspan></text>
+  <g>
+    <line class="cls-1" x1="73.5" y1="18.96" x2="203.81" y2="18.96"/>
+    <path class="cls-3" d="M209.84,18.96c-2.84,1.05-6.36,2.85-8.55,4.76l1.72-4.76-1.72-4.75c2.18,1.9,5.71,3.7,8.55,4.75Z"/>
+  </g>
+  <g>
+    <line class="cls-1" x1="79.53" y1="29.69" x2="209.84" y2="29.69"/>
+    <path class="cls-3" d="M73.5,29.69c2.84,1.05,6.36,2.85,8.55,4.76l-1.72-4.76,1.72-4.75c-2.18,1.9-5.71,3.7-8.55,4.75Z"/>
+  </g>
+  <g>
+    <line class="cls-1" x1="308.76" y1="29.69" x2="439.07" y2="29.69"/>
+    <path class="cls-3" d="M302.72,29.69c2.84,1.05,6.36,2.85,8.55,4.76l-1.72-4.76,1.72-4.75c-2.18,1.9-5.71,3.7-8.55,4.75Z"/>
+  </g>
+  <g>
+    <line class="cls-1" x1="302.72" y1="18.96" x2="433.03" y2="18.96"/>
+    <path class="cls-3" d="M439.07,18.96c-2.84,1.05-6.36,2.85-8.55,4.76l1.72-4.76-1.72-4.75c2.18,1.9,5.71,3.7,8.55,4.75Z"/>
+  </g>
+</svg>

@@ -1,13 +1,13 @@
 html {
     background-color: #DECDBF;
-    height: 100vh;
-    width: 100vw;
     margin: 0;
 }
 
 body {
     background-color: #DECDBF;
     margin: 0;
+
+    margin-bottom: 5rem;
 }
 
 .title {
@@ -35,18 +35,25 @@ body {
     margin-top: 2%;
 }
 
-pre.language-rust {
+pre {
     padding: 2em;
 }
 
 code {
     font-family: "Iosevka Web", monospace;
-    font-size: 1.5em;
+    font-size: 1.5rem;
+}
+
+.il {
+    color: #fff;
+    background-color: #282828;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
 }
 
 p, li {
     font-family: "Iosevka Web", monospace;
-    font-size: 1.5em;
+    font-size: 1.5rem;
 }
 
 a {
@@ -77,7 +84,7 @@ a {
         font-size: 0.6em;
     }
 
-    p {
-        font-size: 1em;
+    p, li {
+        font-size: 1rem;
     }
 }
