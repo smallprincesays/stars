@@ -10,6 +10,18 @@ body {
     margin-bottom: 5rem;
 }
 
+h1, h2, h3 {
+    font-family: "mencken-std-head-narrow", sans-serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 4em;
+    text-decoration: underline;
+}
+
+h2 {
+  font-size: 3em;
+}
+
 .title {
     font-family: "mencken-std-head-narrow", sans-serif;
     font-weight: 400;
@@ -37,20 +49,18 @@ body {
 
 pre {
     padding: 2em;
-    overflow: scroll;
+    overflow-x: scroll;
 }
 
 code {
     font-family: "Iosevka Web", monospace;
     font-size: 1.5rem;
+    background-color: #282828;
+    color: #B6B18E;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
 }
 
-.il {
-    color: #fff;
-    background-color: #282828;
-    padding-left: 0.5rem;
-    padding-right: 0.5rem;
-}
 
 p, li {
     font-family: "Iosevka Web", monospace;
