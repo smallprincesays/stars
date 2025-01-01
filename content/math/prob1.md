@@ -6,7 +6,7 @@ date = 2025-01-01
 Consider $(A_n)_{n \geq 1}$ a sequence of events. For each of the following, find
 an expression.
 
-**1. "exactly one of these events occurs"**
+**1. "Exactly one of these events occurs"**
 
 Let's break this down! We can interpret this as EITHER
 $A_1$ occurs and everything else doesn't, OR $A_2$ occurs
