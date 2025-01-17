@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>blog</title>
+    <link rel="stylesheet" href="https://use.typekit.net/uyn3btb.css">
+    <link href="https://iosevka-webfonts.github.io/iosevka/iosevka.css" rel="stylesheet" />
+
+    <!--KaTeX-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.css" integrity="sha384-7lU0muIg/i1plk7MgygDUp3/bNRA65orrBub4/OSWHECgwEsY83HaS1x3bljA/XV" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.js" integrity="sha384-RdymN7NRJ+XoyeRY4185zXaxq9QWOOx3O7beyyrRK4KQZrPlCDQQpCu95FoCGPAE" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous"
+        onload='renderMathInElement(
+                    document.body,
+                    {
+                        delimiters: [
+                            {left: "$$", right: "$$", display: true},
+                            {left: "\\[", right: "\\]", display: true},
+                            {left: "$", right: "$", display: false},
+                            {left: "\\(", right: "\\)", display: false}
+                        ],
+                        macros: {
+                            "\\RR": "\\mathbb{R}",
+                            "\\EE": "\\mathbb{E}",
+                        }
+                    });'></script>
+    <script src="anime.min.js"></script>
+    
+    <link rel="stylesheet" href="https://smallprincesays.github.io/stars/main.css"
+
+</head>
+
+<body>
+    
+
+
+<div class="body">
+    <div class="left-section"></div>
+    <div class="right-section">
+        <div class="top-lns lns">
+            <h2 class="rust ln"><a href="https://smallprincesays.github.io/stars/rust/">rust</a></h2>
+            <h2 class="machine-learning ln">
+                <a href="https://smallprincesays.github.io/stars/machinelearning/">machine learning</a>
+            </h2>
+        </div>
+        <h1 class="headline">from the stars.</h1>
+        <div class="bottom-lns lns">
+            <h2 class="philosophy ln"><a href="https://smallprincesays.github.io/stars/philosophy/">philosophy</a></h2>
+            <h2 class="math ln"><a href="https://smallprincesays.github.io/stars/math/">math</a></h2>
+        </div>
+    </div>
+
+
+</div>
+
+<script>
+    anime({
+        targets: '.rust',
+        opacity: 1,
+        duration: 15000,
+        delay: 750,
+    });
+
+    anime({
+        targets: '.machine-learning',
+        opacity: 1,
+        duration: 15000,
+        delay: 500,
+    });
+
+    anime({
+        targets: '.philosophy',
+        opacity: 1,
+        duration: 15000,
+        delay: 400,
+    });
+    
+    anime({
+        targets: '.math',
+        opacity: 1,
+        duration: 15000,
+        delay: 450,
+    });
+
+    // Easy moving outwards
+    anime({
+        targets: '.rust',
+        translateX: -20,
+        translateY: -130,
+        rotateZ: -20,
+        duration: 20000,
+        delay: 300,
+        easing: 'easeOutSine',
+    });
+
+    anime({
+        targets: '.machine-learning',
+        translateX: +20,
+        translateY: -80,
+        rotateZ: +10,
+        duration: 20000,
+        delay: 650,
+        easing: 'easeOutSine',
+    });
+
+    anime({
+        targets: '.philosophy',
+        translateX: -20,
+        translateY: +90,
+        rotateZ: +10,
+        duration: 20000,
+        delay: 500,
+        easing: 'easeOutSine',
+    });
+    
+    anime({
+        targets: '.math',
+        translateX: +20,
+        translateY: +140,
+        rotateZ: -15,
+        duration: 20000,
+        delay: 600,
+        easing: 'easeOutSine',
+    });
+</script>
+
+
+</body>
+
+</html>

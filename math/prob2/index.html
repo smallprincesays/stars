@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>blog</title>
+    <link rel="stylesheet" href="https://use.typekit.net/uyn3btb.css">
+    <link href="https://iosevka-webfonts.github.io/iosevka/iosevka.css" rel="stylesheet" />
+
+    <!--KaTeX-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.css" integrity="sha384-7lU0muIg/i1plk7MgygDUp3/bNRA65orrBub4/OSWHECgwEsY83HaS1x3bljA/XV" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.js" integrity="sha384-RdymN7NRJ+XoyeRY4185zXaxq9QWOOx3O7beyyrRK4KQZrPlCDQQpCu95FoCGPAE" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous"
+        onload='renderMathInElement(
+                    document.body,
+                    {
+                        delimiters: [
+                            {left: "$$", right: "$$", display: true},
+                            {left: "\\[", right: "\\]", display: true},
+                            {left: "$", right: "$", display: false},
+                            {left: "\\(", right: "\\)", display: false}
+                        ],
+                        macros: {
+                            "\\RR": "\\mathbb{R}",
+                            "\\EE": "\\mathbb{E}",
+                        }
+                    });'></script>
+    <script src="anime.min.js"></script>
+    
+<link rel="stylesheet" href="https://smallprincesays.github.io/stars/blog-page.css">
+
+</head>
+
+<body>
+    
+<div class="body">
+<h1 class="title">
+  Good Set Principle
+</h1>
+<p class="subtitle"><strong>2025-01-02</strong></p>
+<p>Today, let's take a closer look into $\sigma$-algebras! One particular
+$\sigma$-algebra that we know of is $\mathcal{B}_\RR$, the
+Borel $\sigma$-algebra. $\mathcal{B}_\RR$ can be generated using the closed
+sets (we'll use the convention of extended reals):
+$$
+\mathcal{B}_\RR = \sigma(\{[-\infty, \alpha], \forall \alpha \in \RR \})
+$$</p>
+<p>Now, suppose that we know that any function $g : \RR \to \RR$
+is a Borel function if $g^{-1} ([-\infty, \alpha]) \in \mathcal{B}_\RR$
+for all $\alpha \in \RR$. <strong>Prove that for Borel $g$,
+$g^{-1}(B) \in \mathcal{B}_\RR$ for any Borel $B$.</strong></p>
+<br/>
+<p>We know that we have a family of sets $[-\infty, \alpha]$ that are "good", i.e. that satisfy
+our condition of having a Borel preimage. We want to expand this family to the full
+$\sigma$-algebra. To do this, we'll use the <strong>good set principle</strong>, commonly used for this
+sort of property satisfaction with $\sigma$-algebras.</p>
+<p>Here is our setup:</p>
+<ol>
+<li>Want to show: each member of $\mathcal{B}_\RR$ has Borel preimage.</li>
+<li>Define $\mathcal{A} \coloneqq \{A \in \mathcal{B}_\RR : A \text{ has Borel preimage} \}$.</li>
+<li>We need to first show that $\mathcal{A}$ is a $\sigma$-algebra.</li>
+<li>Once we show this, we show that $\mathcal{A}$ contains some inner class $\mathcal{C}$ such that $\sigma(\mathcal{C}) = \mathcal{B}_\RR$.</li>
+</ol>
+<p>Just these four steps are sufficient! How?</p>
+<p>Well, our goal is to show $\mathcal{A} = \mathcal{B}_\RR$, which just means that ALL Borel sets have a Borel preimage.
+$\mathcal{A}$ is defined as:
+$$
+\mathcal{A} \coloneqq \{A \in \mathcal{B}_\RR : g^{-1}(A) \in \mathcal{B}_\RR \}
+$$</p>
+<p>Is this a $\sigma$-algebra? Let's check:</p>
+<p>If $A \in \mathcal{A}$, then $g^{-1}(A) \in \mathcal{B}_\RR$. We then check if the preimage of $A^c$ is Borel:
+$$g^{-1}(A^c) = \left(g^{-1}(A)\right)^c \in \mathcal{B}_\RR \implies A^c \in \mathcal{A}$$
+so $\mathcal{A}$ is closed under complements (preimages commute under set operations!).</p>
+<p>If $A_i \in \mathcal{A}$ for countable $i$, then each $g^{-1}(A_i) \in \mathcal{B}_\RR$. We then check if the preimage
+of $\bigcup_{i} A_i$ is Borel:
+$$
+g^{-1}\left(\bigcup_{i} A_i\right) = \bigcup_i g^{-1} (A_i) \in \mathcal{B}_\RR \implies \bigcup_i A_i \in \mathcal{A}
+$$
+so $\mathcal{A}$ is closed under countable unions (and since complements, also intersections).</p>
+<p>So $\mathcal{A}$ is a $\sigma$-algebra! Now, we should use the other fact we know: sets of the
+form $[-\infty, \alpha]$ have a Borel preimage. Let's define $\mathcal{C}$ as the family of these sets:
+$$
+\mathcal{C} = \{[-\infty, \alpha], \forall \alpha \in \RR \}
+$$</p>
+<p>Since all such sets are also Borel, $\mathcal{C} \subset \mathcal{A}$. We ALSO know that we generated
+the Borel $\sigma$-algebra using these sets, so we have $\sigma(\mathcal{C}) = \mathcal{B}_\RR$.
+Now here's the cool part:</p>
+<ol>
+<li>Since $\mathcal{C} \subset \mathcal{A}$ AND $\mathcal{A}$ is a $\sigma$-algebra, $\sigma(\mathcal{C}) \subset \mathcal{A}$.</li>
+<li>$\sigma(\mathcal{C}) = \mathcal{B}_\RR$, so $\mathcal{B}_\RR \subset \mathcal{A}$.</li>
+<li>But $\mathcal{A}$ is <em>made</em> from Borel sets, so by definition $\mathcal{A} \subset \mathcal{B}_\RR$.</li>
+<li>Since $\mathcal{B}_\RR \subset \mathcal{A}$ and $\mathcal{A} \subset \mathcal{B}_\RR$, $\mathcal{A} = \mathcal{B}_\RR$!</li>
+</ol>
+<p>So somehow, we've jumped to knowing that all Borel sets are good sets (having a Borel preimage).</p>
+<br/>
+<p>I think this is a really cool proof :) We are playing catch-up a little since I was out of town, but will have more to come.</p>
+
+</div>
+
+</body>
+
+</html>

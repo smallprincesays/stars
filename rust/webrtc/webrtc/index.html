@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>blog</title>
+    <link rel="stylesheet" href="https://use.typekit.net/uyn3btb.css">
+    <link href="https://iosevka-webfonts.github.io/iosevka/iosevka.css" rel="stylesheet" />
+
+    <!--KaTeX-->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.css" integrity="sha384-7lU0muIg/i1plk7MgygDUp3/bNRA65orrBub4/OSWHECgwEsY83HaS1x3bljA/XV" crossorigin="anonymous">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/katex.min.js" integrity="sha384-RdymN7NRJ+XoyeRY4185zXaxq9QWOOx3O7beyyrRK4KQZrPlCDQQpCu95FoCGPAE" crossorigin="anonymous"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.19/dist/contrib/auto-render.min.js" integrity="sha384-hCXGrW6PitJEwbkoStFjeJxv+fSOOQKOPbJxSfM6G5sWZjAyWhXiTIIAmQqnlLlh" crossorigin="anonymous"
+        onload='renderMathInElement(
+                    document.body,
+                    {
+                        delimiters: [
+                            {left: "$$", right: "$$", display: true},
+                            {left: "\\[", right: "\\]", display: true},
+                            {left: "$", right: "$", display: false},
+                            {left: "\\(", right: "\\)", display: false}
+                        ],
+                        macros: {
+                            "\\RR": "\\mathbb{R}",
+                            "\\EE": "\\mathbb{E}",
+                        }
+                    });'></script>
+    <script src="anime.min.js"></script>
+    
+<link rel="stylesheet" href="https://smallprincesays.github.io/stars/blog-page.css">
+
+</head>
+
+<body>
+    
+<div class="body">
+<h1 class="title">
+  On WebRTC
+</h1>
+<p class="subtitle"><strong>2024-12-26</strong></p>
+<h1 id="introduction">introduction</h1>
+<p>As part of a larger Rust project, I'm implementing WebRTC
+to establish peer-to-peer connections in a mesh-like fashion.
+My main goal is to add a state machine and replace some of
+the components that are currently slowing down the program.</p>
+<p>To give context, WebRTC is an protocol and API for two peers
+to negotiate a bi-directional secure connection and
+an API to let developers use the protocol in their preferred
+language. It additionally serves as an abstraction for many
+internet protocols (e.g. SCTP, STUN/TURN, ICE, SDP) that would
+have to be historically hand-rolled for peer connections. In this
+post, I won't go into the nitty gritty of how WebRTC works under
+the hood—fortunately, we can implement WebRTC without knowing
+all the details 100% (I highly recommend reading through
+<a href="https://webrtcforthecurious.com/">WebRTC for the Curious</a> for
+an amazing deep dive into these details).</p>
+<p>Our goal is to establish a peer-to-peer connection between a
+<strong>client</strong> and a <strong>worker</strong> with a <em>data channel</em>, which allows
+to send arbitrary bytes across the network connection. To negotiate
+the WebRTC connection between the client and worker, we need
+a <strong>signaling server</strong>, which simply means a relayer that will
+forward all client messages to the worker, and all worker messages
+to the client.</p>
+<p><img src="../webrtc_system.svg" alt="WebRTC System" /></p>
+<p>Assume the client knows the ID for the worker it is attempting to connect to.
+Defining the client as the "impolite peer" (i.e. the one that always
+starts the negotiation), we can negotiate using the following steps (summarized version
+of the WebRTC for the Curious book mentioned earlier):</p>
+<ol>
+<li>
+<p>Client generates an offer. This offer consists of a local <strong>Session
+Description Protocol</strong> (SDP), which contains all the data formats
+(e.g. audio OPUS, video VP8) that this peer is willing to exchange.
+The client then sends this offer to the worker through the signaling
+server.</p>
+<p>At this point, the client has an <code>RTCPeerConnection</code> object, with
+its local description set to the offer SDP.</p>
+</li>
+<li>
+<p>The worker receives the client's offer, and sets its <code>RTCPeerConnection</code>
+object's remote description to the client's SDP. Additionally, it generates an answer, which
+is another SDP that may exclude some of the data formats that the offer SDP had. This ensures
+both peers are aware of the data formats they are willing to exchange.</p>
+<p>Similar to the client, the worker's <code>RTCPeerConnection</code> both
+local and remote descriptions correctly set.</p>
+</li>
+<li>
+<p>When the client receives the answer, it sets its remote description accordingly. At this point,
+both peers can send each other generated <strong>ICE candidates</strong>, which represent possible
+addresses that this peer is available on. This process is necessary because either
+peer could be behind private IP addresses in separate subnets, making traditional HTTP
+connections impossible (routers would not know which host to send packets to).</p>
+<p>WebRTC instead uses a <strong>network address translation</strong> (NAT) mapping, which will map
+private IP addresses like <code>192.168.0.1:7000</code>
+to public ones like <code>5.0.0.1:7000</code> (essentially automated port forwarding).
+All the automation is packaged into the STUN/TURN/ICE protocols.</p>
+</li>
+<li>
+<p>As both the client and the worker receive ICE candidates from each other, they will use
+ICE ping packets to establish connectivity. Once the connection is established, we can
+treat this as any normal socket and start sending data.</p>
+</li>
+<li>
+<p>In the background, the client and worker continue sending ICE candidates, and if a better
+Candidate Pair is found, the underlying connection is moved for the rest of the session
+under the hood.</p>
+</li>
+</ol>
+<p>Here is the current design for modeling this problem in a simple way:</p>
+<ol>
+<li>
+<p>A client and worker attempt to establish a WebRTC connection.</p>
+</li>
+<li>
+<p>A <strong>distributor</strong> acts as a signaling server, with bidirectional <strong>gRPC</strong> stream
+connections with both the client and the worker. An important constraint here is that
+when the distributor is deployed on e.g. Google Cloud Run, there may be multiple
+instances of the distributor, so we require message passing between distributor
+instances to be a correct signaling server implementation.</p>
+</li>
+</ol>
+<p>With this constraint, the diagram turns into:</p>
+<p><img src="../multi_dist.svg" alt="WebRTC System with Multiple Distributor Instances" /></p>
+<p>For the initial system, we have been using Google <strong>Pub/Sub</strong> for inter-instance
+communication. Here is an example of <code>RtcMessage</code> protobuf
+definitions for the worker (client definitions are very similar):</p>
+<pre data-lang="proto" style="background-color:#282828;color:#fdf4c1aa;" class="language-proto "><code class="language-proto" data-lang="proto"><span style="color:#fa5c4b;">enum </span><span style="color:#8ec07c;">RtcEvent </span><span>{
+</span><span>    </span><span style="color:#fdf4c1;">OFFER </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">0</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">ANSWER </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">1</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">ACCEPT_ANSWER </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">2</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">ICE_CANDIDATE </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">3</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">LOCAL_ICE_CANDIDATE </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">4</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">BLANK </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">5</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">PING </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">6</span><span>;
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">message </span><span style="color:#8ec07c;">WorkerRtcMessage </span><span>{
+</span><span>    </span><span style="color:#fabd2f;">int64 </span><span style="color:#fdf4c1;">worker_machine_id </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">1</span><span>;
+</span><span>    </span><span style="color:#fdf4c1;">RtcEvent event </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">2</span><span>;
+</span><span>    </span><span style="color:#fabd2f;">bytes </span><span style="color:#fdf4c1;">message </span><span style="color:#fe8019;">= </span><span style="color:#d3869b;">3</span><span>;
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">service </span><span style="color:#8ec07c;">WorkerService </span><span>{
+</span><span>    </span><span style="color:#fa5c4b;">rpc </span><span style="color:#8ec07c;">NegotiatePeerConnection</span><span>(</span><span style="color:#fa5c4b;">stream </span><span style="color:#fdf4c1;">WorkerRtcMessage</span><span>) </span><span style="color:#fa5c4b;">returns </span><span>(</span><span style="color:#fa5c4b;">stream </span><span style="color:#fdf4c1;">WorkerRtcMessage</span><span>);
+</span><span>}
+</span></code></pre>
+<p>For simplicity, I'll spare the details of the full implementation, since the eventual goal is refactor
+the original code into a state machine while replacing Google Pub/Sub.
+Here's the rationale. With the current code, establishing the peer connection takes
+9-10 seconds on average.</p>
+<p>Using <code>flamegraph</code>, I tried profiling the distributor code to
+find the critical section (or perhaps more accurately, the blocking functions).
+The image is annoyingly wide, so open in new tab to see it in its full glory:</p>
+<img src="../flamegraph.svg" width="100%" />
+<p>Recall that the important sections are the width of each cell, and the height, which denotes
+the stack depth. We really care about this section, which is located near the middle
+right parts of the flamegraph:</p>
+<img src="../flamegraph_truncate.svg" width="100%" />
+<p>We start at the stack depth of the <code>negotiate_peer_connection</code>
+gRPC function, and can easily see that the Pub/Sub parts of the code are easily
+the largest bottleneck compared to the rest of the code. This finding motivates
+finding a replacement for Pub/Sub. In hindsight, this makes sense given that
+we create a new subscription for every client, while Pub/Sub subscriptions are meant
+to be long-lived (<a href="https://stackoverflow.com/questions/71198747/pubsublite-subscribe-extremely-slow-for-first-message">related StackOverflow</a>).
+While replacing Pub/Sub, we can additionally use this as an excuse to try creating
+a WebRTC state machine as an interesting learning exercise.</p>
+<h1 id="state-machines">state machines!</h1>
+<p>A really interesting read for me has been Will Crichton's
+<a href="https://willcrichton.net/rust-api-type-patterns/typestate.html">Type-Driven API Design in Rust</a>,
+where he uses <strong>typestates</strong> ("encoding a state machine's state into the type system")
+to check state validity <em>at compile time</em>. While this is great concept, since our data comes in
+during runtime and is dynamic across multiple processes/machines, we can't quite have the same
+guarantees. However, we can take inspiration from typestate programs and write an FSM with
+fallible transitions. Let's take an example and see how we can implement this.</p>
+<p>For the client, we can create a state diagram for the client through the negotiation process:</p>
+<p><img src="../client_state_machine.svg" alt="Client State Machine" /></p>
+<p>When <code>negotiate_peer_connection()</code> is called in the client, it creates
+a <code>PeerConnection</code> with a generated offer SDP, which is sent to the
+distributor. Upon receiving an answer, it enters the <code>answered</code> state,
+where ICE candidates are sent and received. When the appropriate ICE candidates are exchanged,
+we progress to the <code>connected</code> state. At any point, <code>close()</code>
+can be called to reach the final state.</p>
+<p>Our code implementation won't match one-to-one with this diagram, since the state transitions
+may be caused by background ICE candidate exchanges happening in the <code>webrtc</code>
+crate, but we'll try our best.</p>
+<p>Let's start with creating a few abstractions so we don't need to deal with the distributor for now.
+We create a <code>Uid</code> newtype, which is thoroughly defined in the original code, but we simply need a tuple
+struct around <code>i64</code> for now. Additionally, since we discriminate between <code>ClientRtcMessage</code>s and
+<code>WorkerRtcMessage</code>s, we'll make a trait that encapsulates the shared functionality. The final piece
+of small boilerplate is a <code>SignalingChannel</code>, which simply represents bidirectional communication
+with the distributor. The inner <code>AsyncStream</code> code is abstracted away into a <code>Sender</code> and <code>Receiver</code>,
+which we'll use in the state machine.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>#[</span><span style="color:#fdf4c1;">derive</span><span>(Clone)]
+</span><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">Uid</span><span>(</span><span style="color:#fa5c4b;">i64</span><span>);
+</span><span>
+</span><span style="color:#fa5c4b;">pub trait </span><span style="color:#8ec07c;">RtcMessage </span><span>{
+</span><span>    </span><span style="color:#fa5c4b;">type </span><span style="color:#8ec07c;">Id</span><span>;
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">new</span><span>(</span><span style="color:#fdf4c1;">id</span><span>: </span><span style="color:#fa5c4b;">Self::</span><span>Id, </span><span style="color:#fdf4c1;">event</span><span>: </span><span style="color:#fa5c4b;">i32</span><span>, </span><span style="color:#fdf4c1;">message</span><span>: </span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;) -&gt; </span><span style="color:#fa5c4b;">Self</span><span>;
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">impl </span><span>RtcMessage </span><span style="color:#fa5c4b;">for </span><span style="color:#8ec07c;">ClientRtcMessage </span><span>{
+</span><span>    </span><span style="color:#fa5c4b;">type </span><span style="color:#8ec07c;">Id </span><span style="color:#fe8019;">= </span><span style="color:#fa5c4b;">i64</span><span>;
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">new</span><span>(</span><span style="color:#fdf4c1;">id</span><span>: </span><span style="color:#fa5c4b;">Self::</span><span>Id, </span><span style="color:#fdf4c1;">event</span><span>: </span><span style="color:#fa5c4b;">i32</span><span>, </span><span style="color:#fdf4c1;">message</span><span>: </span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;) -&gt; </span><span style="color:#fa5c4b;">Self </span><span>{
+</span><span>        </span><span style="color:#fa5c4b;">Self </span><span>{
+</span><span>            worker_machine_id: id,
+</span><span>            event,
+</span><span>            message,
+</span><span>        }
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">SignalingChannel</span><span>&lt;Message&gt;
+</span><span>where
+</span><span>    Message: RtcMessage&lt;Id = i64&gt; + Send + Sync,
+</span><span>{
+</span><span>    </span><span style="color:#fdf4c1;">sender</span><span>: mpsc::Sender&lt;Message&gt;,
+</span><span>    </span><span style="color:#fdf4c1;">receiver</span><span>: mpsc::Receiver&lt;Message&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">SignalingChannel</span><span>&lt;ClientRtcMessage&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">new</span><span>(
+</span><span>        </span><span style="color:#fdf4c1;">sender</span><span>: mpsc::Sender&lt;ClientRtcMessage&gt;,
+</span><span>        </span><span style="color:#fdf4c1;">receiver</span><span>: mpsc::Receiver&lt;ClientRtcMessage&gt;,
+</span><span>    ) -&gt; </span><span style="color:#fa5c4b;">Self </span><span>{
+</span><span>        </span><span style="color:#fa5c4b;">Self </span><span>{ sender, receiver }
+</span><span>    }
+</span><span>
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">message</span><span>: ClientRtcMessage) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.sender.</span><span style="color:#fabd2f;">send</span><span>(message).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">recv</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fa5c4b;">mut </span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Option</span><span>&lt;ClientRtcMessage&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.receiver.</span><span style="color:#fabd2f;">recv</span><span>().await
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>We have the pieces to make our general <code>PeerConnection</code> object now.
+Since we want easy access to this, we'll wrap the inner pieces in <code>Arc</code>s for now
+(if this ends up being a big bottleneck in the future, we can redesign if needed).</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>#[</span><span style="color:#fdf4c1;">derive</span><span>(Clone)]
+</span><span style="color:#fa5c4b;">pub struct </span><span style="color:#8ec07c;">PeerConnection </span><span>{
+</span><span>    </span><span style="color:#fa5c4b;">pub </span><span style="color:#fdf4c1;">rtc_connection</span><span>: Arc&lt;RTCPeerConnection&gt;,
+</span><span>    </span><span style="color:#fa5c4b;">pub </span><span style="color:#fdf4c1;">data_channel</span><span>: </span><span style="color:#fabd2f;">Option</span><span>&lt;Arc&lt;RTCDataChannel&gt;&gt;,
+</span><span>    </span><span style="color:#fa5c4b;">pub </span><span style="color:#fdf4c1;">pending_candidates</span><span>: Arc&lt;Mutex&lt;</span><span style="color:#fabd2f;">Vec</span><span>&lt;RTCIceCandidate&gt;&gt;&gt;, </span><span style="font-style:italic;color:#928374;">// Local candidates that have not been sent to the remote peer yet
+</span><span>}
+</span></code></pre>
+<p>Following the <code>webrtc</code> crate's example, we can create default
+<code>PeerConnection</code>s (this section is largely <code>webrtc</code> boilerplate,
+can be skipped if needed; I'm simply including for completeness):</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">PeerConnection </span><span>{
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">default</span><span>() -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;</span><span style="color:#fa5c4b;">Self</span><span>&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> config </span><span style="color:#fe8019;">=</span><span> RTCConfiguration {
+</span><span>            ice_servers: </span><span style="color:#fabd2f;">vec!</span><span>[RTCIceServer {
+</span><span>                urls: </span><span style="color:#fabd2f;">vec!</span><span>[</span><span style="color:#b8bb26;">&quot;stun:stun.l.google.com:19302&quot;</span><span>.</span><span style="color:#fabd2f;">to_owned</span><span>()],
+</span><span>                </span><span style="color:#fe8019;">..</span><span style="color:#fabd2f;">Default</span><span>::default()
+</span><span>            }],
+</span><span>            </span><span style="color:#fe8019;">..</span><span style="color:#fabd2f;">Default</span><span>::default()
+</span><span>        };
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let mut</span><span> media_engine </span><span style="color:#fe8019;">= </span><span>MediaEngine::default();
+</span><span>        media_engine.</span><span style="color:#fabd2f;">register_default_codecs</span><span>()</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fa5c4b;">let mut</span><span> registry </span><span style="color:#fe8019;">= </span><span>Registry::new();
+</span><span>        registry </span><span style="color:#fe8019;">= </span><span style="color:#fabd2f;">register_default_interceptors</span><span>(registry, </span><span style="color:#fe8019;">&amp;</span><span style="color:#fa5c4b;">mut</span><span> media_engine)</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> api </span><span style="color:#fe8019;">= </span><span>APIBuilder::new()
+</span><span>            .</span><span style="color:#fabd2f;">with_media_engine</span><span>(media_engine)
+</span><span>            .</span><span style="color:#fabd2f;">with_interceptor_registry</span><span>(registry)
+</span><span>            .</span><span style="color:#fabd2f;">build</span><span>();
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> peer_connection </span><span style="color:#fe8019;">= </span><span>Arc::new(api.</span><span style="color:#fabd2f;">new_peer_connection</span><span>(config).await</span><span style="color:#fe8019;">?</span><span>);
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> peer_connection </span><span style="color:#fe8019;">=</span><span> PeerConnection {
+</span><span>            rtc_connection: peer_connection,
+</span><span>            data_channel: </span><span style="color:#fabd2f;">None</span><span>,
+</span><span>            pending_candidates: Arc::new(Mutex::new(</span><span style="color:#fabd2f;">Vec</span><span>::new())),
+</span><span>        };
+</span><span>
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(peer_connection)
+</span><span>    }
+</span></code></pre>
+<p>Next, in the client's case, we also want to add a data channel to the created <code>PeerConnection</code> and
+create an offer SDP afterwards:</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="font-style:italic;color:#928374;">/// Creates a data channel with open and message listeners.
+</span><span>    </span><span style="font-style:italic;color:#928374;">/// Must be created before creating an offer as part of WebRTC protocol.
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">create_data_channel</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fa5c4b;">mut </span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> data_channel </span><span style="color:#fe8019;">= </span><span style="color:#fdf4c1;">self
+</span><span>            .rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">create_data_channel</span><span>(</span><span style="color:#b8bb26;">&quot;data&quot;</span><span>, </span><span style="color:#fabd2f;">None</span><span>)
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        data_channel.</span><span style="color:#fabd2f;">clone</span><span>().</span><span style="color:#fabd2f;">on_open</span><span>(</span><span style="color:#fabd2f;">Box</span><span>::new(</span><span style="color:#fa5c4b;">move </span><span style="color:#fe8019;">|| </span><span>{
+</span><span>            </span><span style="color:#fabd2f;">println!</span><span>(</span><span style="color:#b8bb26;">&quot;Client: Data channel opened&quot;</span><span>);
+</span><span>            </span><span style="color:#fabd2f;">Box</span><span>::pin(async </span><span style="color:#fa5c4b;">move </span><span>{})
+</span><span>        }));
+</span><span>
+</span><span>        data_channel.</span><span style="color:#fabd2f;">on_message</span><span>(</span><span style="color:#fabd2f;">Box</span><span>::new(</span><span style="color:#fa5c4b;">move </span><span style="color:#fe8019;">|</span><span>msg</span><span style="color:#fe8019;">| </span><span>{
+</span><span>            </span><span style="color:#fabd2f;">println!</span><span>(</span><span style="color:#b8bb26;">&quot;Client: Received message: </span><span style="color:#fdf4c1;">{:?}</span><span style="color:#b8bb26;">&quot;</span><span>, msg);
+</span><span>            </span><span style="color:#fabd2f;">Box</span><span>::pin(async </span><span style="color:#fa5c4b;">move </span><span>{})
+</span><span>        }));
+</span><span>
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.data_channel.</span><span style="color:#fabd2f;">replace</span><span>(data_channel);
+</span><span>
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">create_offer</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;RTCSessionDescription&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> offer </span><span style="color:#fe8019;">= </span><span style="color:#fdf4c1;">self</span><span>.rtc_connection.</span><span style="color:#fabd2f;">create_offer</span><span>(</span><span style="color:#fabd2f;">None</span><span>).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">set_local_description</span><span>(offer.</span><span style="color:#fabd2f;">clone</span><span>())
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(offer)
+</span><span>    }
+</span></code></pre>
+<p>Almost done with <code>PeerConnection</code> implementation—we just need
+to add handlers when the RTC state changes (not to be confused with
+the state machine we are yet to add!), when ICE candidates are locally
+generated, and when a data channel between peers opens up.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">start_state_change_handler</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">on_peer_connection_state_change</span><span>(</span><span style="color:#fabd2f;">Box</span><span>::new(</span><span style="color:#fa5c4b;">move </span><span style="color:#fe8019;">|</span><span>s: RTCPeerConnectionState</span><span style="color:#fe8019;">| </span><span>{
+</span><span>                </span><span style="color:#fabd2f;">println!</span><span>(</span><span style="color:#b8bb26;">&quot;State change: </span><span style="color:#fdf4c1;">{:?}</span><span style="color:#b8bb26;">&quot;</span><span>, s);
+</span><span>                </span><span style="color:#fabd2f;">Box</span><span>::pin(async {})
+</span><span>            }));
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">start_ice_candidate_handler</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fabd2f;">todo!</span><span>()
+</span><span>    }
+</span><span>
+</span><span>    async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">start_data_channel_handler</span><span>(</span><span style="color:#fa5c4b;">mut </span><span style="color:#fdf4c1;">self</span><span>) {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">on_data_channel</span><span>(</span><span style="color:#fabd2f;">Box</span><span>::new(</span><span style="color:#fa5c4b;">move </span><span style="color:#fe8019;">|</span><span>d: Arc&lt;RTCDataChannel&gt;</span><span style="color:#fe8019;">| </span><span>{
+</span><span>                </span><span style="color:#fabd2f;">println!</span><span>(</span><span style="color:#b8bb26;">&quot;data channel opened!&quot;</span><span>);
+</span><span>                </span><span style="color:#fa5c4b;">let</span><span> data_channel </span><span style="color:#fe8019;">=</span><span> d.</span><span style="color:#fabd2f;">clone</span><span>();
+</span><span>                </span><span style="color:#fdf4c1;">self</span><span>.data_channel.</span><span style="color:#fabd2f;">replace</span><span>(data_channel);
+</span><span>                </span><span style="color:#fabd2f;">Box</span><span>::pin(async {})
+</span><span>            }));
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Since the state machine is yet to be created, we're not 100% sure
+what the local ICE candidate handler will look like. It needs to somehow
+send ICE candidates to the distributor, but only when we are in the correct
+states, so let's defer its implementation until we know future details.
+Note that the data channel handler "consumes" <code>self</code> since we'll
+replace the underlying memory through the <code>Arc</code>.</p>
+<p>Cool! Now we can create a client-side <code>PeerConnection</code> object:</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">client_peer_connection</span><span>() -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;PeerConnection&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">let mut</span><span> peer_connection </span><span style="color:#fe8019;">= </span><span>PeerConnection::default().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>    peer_connection.</span><span style="color:#fabd2f;">create_data_channel</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>    peer_connection.</span><span style="color:#fabd2f;">start_state_change_handler</span><span>()</span><span style="color:#fe8019;">?</span><span>;
+</span><span>    peer_connection
+</span><span>        .start_ice_candidate_handler::&lt;ClientRtcMessage&gt;()
+</span><span>        .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>    peer_connection.</span><span style="color:#fabd2f;">clone</span><span>().</span><span style="color:#fabd2f;">start_data_channel_handler</span><span>().await;
+</span><span>    </span><span style="color:#fabd2f;">Ok</span><span>(peer_connection)
+</span><span>}
+</span></code></pre>
+<p>Finally, we can start building our WebRTC state machine! Let's start
+with defining our states and the machine itself.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">Offering</span><span>;
+</span><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">Answered</span><span>;
+</span><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">Connected</span><span>;
+</span><span style="color:#fa5c4b;">struct </span><span style="color:#8ec07c;">Closed</span><span>;
+</span><span>
+</span><span style="color:#fa5c4b;">pub struct </span><span style="color:#8ec07c;">ImpolitePeerConnectionState</span><span>&lt;State&gt; {
+</span><span>    </span><span style="color:#fdf4c1;">inner</span><span>: PeerConnection,
+</span><span>    </span><span style="color:#fdf4c1;">signaling_channel</span><span>: SignalingChannel&lt;ClientRtcMessage&gt;,
+</span><span>    </span><span style="color:#fdf4c1;">_state</span><span>: PhantomData&lt;State&gt;,
+</span><span>}
+</span></code></pre>
+<p>It might feel weird to add this <code>PhantomData</code> field in
+the machine struct. If we remove the <code>_state</code> field, the compiler
+complains that we never use the type parameter <code>State</code>. So we add
+the extra field simply to appease the compiler.</p>
+<p>Okay, great so far—we have some semblance of a state machine.
+How do we get it started? Well, in the diagram we know we'll call
+some kind of <code>negotiate</code> function. Let's start by defining
+a standalone function for <code>ImpolitePeerConnectionState&lt;Offering&gt;</code>:</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">ImpolitePeerConnectionState</span><span>&lt;Offering&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">negotiate</span><span>(
+</span><span>        </span><span style="color:#fdf4c1;">peer_id</span><span>: Uid,
+</span><span>        </span><span style="color:#fdf4c1;">signaling_channel</span><span>: SignalingChannel&lt;ClientRtcMessage&gt;,
+</span><span>    ) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Offering&gt;&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> inner </span><span style="color:#fe8019;">= </span><span style="color:#fabd2f;">client_peer_connection</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> offer </span><span style="color:#fe8019;">=</span><span> inner.</span><span style="color:#fabd2f;">create_offer</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> offer_payload </span><span style="color:#fe8019;">= </span><span>serde_json::to_string(</span><span style="color:#fe8019;">&amp;</span><span>offer)</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> message </span><span style="color:#fe8019;">=
+</span><span>            ClientRtcMessage::new(peer_id.</span><span style="color:#d3869b;">0</span><span>, RtcEvent::Offer </span><span style="color:#fe8019;">as </span><span style="color:#fa5c4b;">i32</span><span>, offer_payload.</span><span style="color:#fabd2f;">into</span><span>());
+</span><span>        signaling_channel.</span><span style="color:#fabd2f;">send</span><span>(message).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            inner,
+</span><span>            signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span></code></pre>
+<p>Here, we create our <code>PeerConnection</code>, and send the serialized offer SDP
+to the distributor as a <code>ClientRtcMessage</code>. Super easy. The next step is to
+add in the <code>recv_answer()</code> function. Here's where we run into our first issue:
+we're going to be receiving <code>RtcMessage</code>s asynchronously from the distributor.
+So how do we enforce our typestate design? I believe this is where we break
+away from having traditional typestate and instead err towards fallible transitions.</p>
+<p>The other interesting part here is that our transition has the side effect of
+sending all the "pending ICE candidates". If we generate any ICE candidates while
+in the <code>offering</code> state, we store them until we reach a state that we can send them.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_answered</span><span>(
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>,
+</span><span>        </span><span style="color:#fdf4c1;">answer_payload</span><span>: String,
+</span><span>    ) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Answered&gt;&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> answer: RTCSessionDescription </span><span style="color:#fe8019;">= </span><span>serde_json::from_str(</span><span style="color:#fe8019;">&amp;</span><span>answer_payload)</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner
+</span><span>            .rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">set_remote_description</span><span>(answer)
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> answered: ImpolitePeerConnectionState&lt;Answered&gt; </span><span style="color:#fe8019;">=</span><span> ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner,
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        };
+</span><span>
+</span><span>        answered.</span><span style="color:#fabd2f;">send_all_pending_candidates</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(answered)
+</span><span>    }
+</span></code></pre>
+<p>Let's allow the error to bubble up for now, and provide the correct error messages
+with the state of the program after. Finally, we can add a simple close function:</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_closed</span><span>(</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Closed&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner.rtc_connection.</span><span style="color:#fabd2f;">close</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner,
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Let's keep going with the <code>answered</code> state. Here, we can either send
+or receive ICE candidates. However, receiving an ICE candidate doesn't immediately
+lead to a state transition. Rather, we'll transition to <code>connected</code> when
+the data channel opens. The <code>webrtc</code> crate offers us handlers to capture
+these events, so we'll have to work around this limitation of transitions.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">ImpolitePeerConnectionState</span><span>&lt;Answered&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send_all_pending_candidates</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let mut</span><span> pending_candidates </span><span style="color:#fe8019;">= </span><span style="color:#fdf4c1;">self</span><span>.inner.pending_candidates.</span><span style="color:#fabd2f;">lock</span><span>().await;
+</span><span>        </span><span style="color:#fa5c4b;">for</span><span> candidate </span><span style="color:#fe8019;">in</span><span> pending_candidates.</span><span style="color:#fabd2f;">iter</span><span>() {
+</span><span>            </span><span style="color:#fdf4c1;">self</span><span>.</span><span style="color:#fabd2f;">send_ice_candidate</span><span>(candidate.</span><span style="color:#fabd2f;">clone</span><span>()).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        }
+</span><span>        pending_candidates.</span><span style="color:#fabd2f;">clear</span><span>();
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send_ice_candidate</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">candidate</span><span>: RTCIceCandidate) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> candidate_payload </span><span style="color:#fe8019;">= </span><span>serde_json::to_string(</span><span style="color:#fe8019;">&amp;</span><span>candidate)</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> message </span><span style="color:#fe8019;">= </span><span>ClientRtcMessage::new(
+</span><span>            </span><span style="color:#fdf4c1;">self</span><span>.id.</span><span style="color:#d3869b;">0</span><span>,
+</span><span>            RtcEvent::IceCandidate </span><span style="color:#fe8019;">as </span><span style="color:#fa5c4b;">i32</span><span>,
+</span><span>            candidate_payload.</span><span style="color:#fabd2f;">into</span><span>(),
+</span><span>        );
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel.</span><span style="color:#fabd2f;">send</span><span>(message).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">recv_ice_candidate</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">candidate_payload</span><span>: String) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> candidate: RTCIceCandidateInit </span><span style="color:#fe8019;">=</span><span> RTCIceCandidateInit {
+</span><span>            candidate: candidate_payload,
+</span><span>            </span><span style="color:#fe8019;">..</span><span style="color:#fabd2f;">Default</span><span>::default()
+</span><span>        };
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner
+</span><span>            .rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">add_ice_candidate</span><span>(candidate)
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span></code></pre>
+<p>To transition to <code>connected</code>, we'll mandate that we have a data channel to pass in.
+Finally, we have the same <code>closed</code> transition.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_connected</span><span>(
+</span><span>        </span><span style="color:#fa5c4b;">mut </span><span style="color:#fdf4c1;">self</span><span>,
+</span><span>        </span><span style="color:#fdf4c1;">data_channel</span><span>: Arc&lt;RTCDataChannel&gt;,
+</span><span>    ) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Connected&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner.data_channel.</span><span style="color:#fabd2f;">replace</span><span>(data_channel);
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner.</span><span style="color:#fabd2f;">clone</span><span>(),
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_closed</span><span>(</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Closed&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner.rtc_connection.</span><span style="color:#fabd2f;">close</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner,
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>We left out one piece of the <code>connected</code> state in the negotiation
+state diagram—we can now send and receive data through the
+data channel! However, the high-level <code>RTCDataChannel</code> that we have
+in our struct doesn't have an idiomatic API; rather, it enforces
+us using <code>on_message</code> event handlers. We can either detach the
+underlying <code>DataChannel</code> object and use the <code>read</code>/<code>write</code> API
+or wrap the <code>RTCDataChannel</code> with our own <code>DataChannel</code>. For
+educational reasons, let's try wrapping it.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">pub struct </span><span style="color:#8ec07c;">DataChannel </span><span>{
+</span><span>    </span><span style="color:#fdf4c1;">data_channel</span><span>: Arc&lt;RTCDataChannel&gt;,
+</span><span>    </span><span style="color:#fdf4c1;">sender</span><span>: mpsc::Sender&lt;DataChannelMessage&gt;,
+</span><span>    </span><span style="color:#fdf4c1;">receiver</span><span>: Mutex&lt;mpsc::Receiver&lt;DataChannelMessage&gt;&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">DataChannel </span><span>{
+</span><span>    </span><span style="color:#fa5c4b;">pub fn </span><span style="color:#8ec07c;">new</span><span>(</span><span style="color:#fdf4c1;">data_channel</span><span>: Arc&lt;RTCDataChannel&gt;) -&gt; </span><span style="color:#fa5c4b;">Self </span><span>{
+</span><span>        </span><span style="color:#fa5c4b;">let </span><span>(sender, receiver) </span><span style="color:#fe8019;">= </span><span>mpsc::channel(</span><span style="color:#d3869b;">32</span><span>);
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> sender_c </span><span style="color:#fe8019;">=</span><span> sender.</span><span style="color:#fabd2f;">clone</span><span>();
+</span><span>
+</span><span>        data_channel.</span><span style="color:#fabd2f;">on_message</span><span>(</span><span style="color:#fabd2f;">Box</span><span>::new(</span><span style="color:#fa5c4b;">move </span><span style="color:#fe8019;">|</span><span>msg</span><span style="color:#fe8019;">| </span><span>{
+</span><span>            </span><span style="color:#fa5c4b;">let</span><span> sender </span><span style="color:#fe8019;">=</span><span> sender_c.</span><span style="color:#fabd2f;">clone</span><span>();
+</span><span>            </span><span style="color:#fabd2f;">Box</span><span>::pin(async </span><span style="color:#fa5c4b;">move </span><span>{
+</span><span>                sender.</span><span style="color:#fabd2f;">send</span><span>(msg).await.</span><span style="color:#fabd2f;">unwrap</span><span>();
+</span><span>            })
+</span><span>        }));
+</span><span>
+</span><span>        </span><span style="color:#fa5c4b;">Self </span><span>{
+</span><span>            data_channel,
+</span><span>            sender,
+</span><span>            receiver: receiver.</span><span style="color:#fabd2f;">into</span><span>(),
+</span><span>        }
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">data</span><span>: </span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> data </span><span style="color:#fe8019;">= </span><span>Bytes::from(data);
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.data_channel.</span><span style="color:#fabd2f;">send</span><span>(</span><span style="color:#fe8019;">&amp;</span><span>data).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">recv</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Option</span><span>&lt;</span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.receiver
+</span><span>            .</span><span style="color:#fabd2f;">lock</span><span>()
+</span><span>            .await
+</span><span>            .</span><span style="color:#fabd2f;">recv</span><span>()
+</span><span>            .await
+</span><span>            .</span><span style="color:#fabd2f;">map</span><span>(|</span><span style="color:#fdf4c1;">m</span><span>| m.data.</span><span style="color:#fabd2f;">to_vec</span><span>())
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Now we can use <code>send</code> and <code>recv</code> and treat the <code>DataChannel</code> like a normal
+channel. All that's left is to replace all the <code>RTCDataChannel</code>s
+with <code>DataChannel</code>s and add <code>Arc</code>s where necessary. Now we can implement
+the <code>connected</code> state. We'll have the same functions for sending and
+receiving ICE candidates, as well as for closing.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">ImpolitePeerConnectionState</span><span>&lt;Connected&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send_data</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">data</span><span>: </span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner
+</span><span>            .data_channel
+</span><span>            .</span><span style="color:#fabd2f;">as_ref</span><span>()
+</span><span>            .</span><span style="color:#fabd2f;">expect</span><span>(</span><span style="color:#b8bb26;">&quot;data channel not created in connected state&quot;</span><span>)
+</span><span>            .</span><span style="color:#fabd2f;">send</span><span>(data.</span><span style="color:#fabd2f;">into</span><span>())
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">recv_data</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fa5c4b;">mut </span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Option</span><span>&lt;</span><span style="color:#fabd2f;">Vec</span><span>&lt;</span><span style="color:#fa5c4b;">u8</span><span>&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner.data_channel.</span><span style="color:#fabd2f;">as_ref</span><span>().</span><span style="color:#fabd2f;">unwrap</span><span>().</span><span style="color:#fabd2f;">recv</span><span>().await
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">send_ice_candidate</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">candidate</span><span>: RTCIceCandidate) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> candidate_payload </span><span style="color:#fe8019;">= </span><span>serde_json::to_string(</span><span style="color:#fe8019;">&amp;</span><span>candidate)</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> message </span><span style="color:#fe8019;">= </span><span>ClientRtcMessage::new(
+</span><span>            </span><span style="color:#fdf4c1;">self</span><span>.id.</span><span style="color:#d3869b;">0</span><span>,
+</span><span>            RtcEvent::IceCandidate </span><span style="color:#fe8019;">as </span><span style="color:#fa5c4b;">i32</span><span>,
+</span><span>            candidate_payload.</span><span style="color:#fabd2f;">into</span><span>(),
+</span><span>        );
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel.</span><span style="color:#fabd2f;">send</span><span>(message).await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">recv_ice_candidate</span><span>(</span><span style="color:#fe8019;">&amp;</span><span style="color:#fdf4c1;">self</span><span>, </span><span style="color:#fdf4c1;">candidate_payload</span><span>: String) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;()&gt; {
+</span><span>        </span><span style="color:#fa5c4b;">let</span><span> candidate: RTCIceCandidateInit </span><span style="color:#fe8019;">=</span><span> RTCIceCandidateInit {
+</span><span>            candidate: candidate_payload,
+</span><span>            </span><span style="color:#fe8019;">..</span><span style="color:#fabd2f;">Default</span><span>::default()
+</span><span>        };
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner
+</span><span>            .rtc_connection
+</span><span>            .</span><span style="color:#fabd2f;">add_ice_candidate</span><span>(candidate)
+</span><span>            .await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(())
+</span><span>    }
+</span><span>
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_closed</span><span>(</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Closed&gt;&gt; {
+</span><span>        </span><span style="color:#fdf4c1;">self</span><span>.inner.rtc_connection.</span><span style="color:#fabd2f;">close</span><span>().await</span><span style="color:#fe8019;">?</span><span>;
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner,
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>For completeness, we'll implement the <code>to_closed</code> for the
+<code>closed</code> state as well, which will allow us to call this function
+from any state without worry.</p>
+<pre data-lang="rust" style="background-color:#282828;color:#fdf4c1aa;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#fa5c4b;">impl </span><span style="color:#8ec07c;">ImpolitePeerConnectionState</span><span>&lt;Closed&gt; {
+</span><span>    </span><span style="color:#fa5c4b;">pub</span><span> async </span><span style="color:#fa5c4b;">fn </span><span style="color:#8ec07c;">to_closed</span><span>(</span><span style="color:#fdf4c1;">self</span><span>) -&gt; </span><span style="color:#fabd2f;">Result</span><span>&lt;ImpolitePeerConnectionState&lt;Closed&gt;&gt; {
+</span><span>        </span><span style="color:#fabd2f;">Ok</span><span>(ImpolitePeerConnectionState {
+</span><span>            id: </span><span style="color:#fdf4c1;">self</span><span>.id,
+</span><span>            inner: </span><span style="color:#fdf4c1;">self</span><span>.inner,
+</span><span>            signaling_channel: </span><span style="color:#fdf4c1;">self</span><span>.signaling_channel,
+</span><span>            _state: PhantomData,
+</span><span>        })
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>And we're (allegedly) done!</p>
+
+</div>
+
+</body>
+
+</html>

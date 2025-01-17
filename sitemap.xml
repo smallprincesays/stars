@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://smallprincesays.github.io/stars/</loc>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/machinelearning/</loc>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/math/</loc>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/math/prob1/</loc>
+        <lastmod>2025-01-01</lastmod>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/math/prob2/</loc>
+        <lastmod>2025-01-02</lastmod>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/math/prob3/</loc>
+        <lastmod>2025-01-03</lastmod>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/philosophy/</loc>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/rust/</loc>
+    </url>
+    <url>
+        <loc>https://smallprincesays.github.io/stars/rust/webrtc/webrtc/</loc>
+        <lastmod>2024-12-26</lastmod>
+    </url>
+</urlset>
